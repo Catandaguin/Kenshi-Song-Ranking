@@ -53,14 +53,14 @@
 </head>
 <body>
     <div id="game-area">
-        <p>Which one is better?</p>
+        <p>Which do you prefer?</p>
         <div id="choice-container">
             <button id="choice1"></button>
             <span>vs</span>
             <button id="choice2"></button>
         </div>
         <button id="skip-button">Skip & Reshuffle</button>
-        <p id="round-counter"></p>
+        <p>Updated May 2025</p>
     </div>
 
     <div id="results-area" style="display: none;">
@@ -77,7 +77,7 @@
             const resultsArea = document.getElementById('results-area');
             const tierList = document.getElementById('tier-list');
             const restartButton = document.getElementById('restart-button');
-            const roundCounter = document.getElementById('round-counter');
+            const roundCounter = document.getElementById('round-counter'); // We still select it, but won't update its text
             const gameArea = document.getElementById('game-area');
 
             const initialNames = [
@@ -239,7 +239,7 @@
                 currentPair = [name1, name2];
                 choice1Button.textContent = name1;
                 choice2Button.textContent = name2;
-                roundCounter.textContent = `Round: ${++roundNum}`;
+                // We no longer update roundCounter.textContent
                 return currentPair;
             }
 
