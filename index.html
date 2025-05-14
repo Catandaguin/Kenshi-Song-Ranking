@@ -44,6 +44,12 @@
             margin-top: 10px; /* Add a little space above the skip button */
         }
 
+        #progress-counter {
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #777;
+        }
+
         #tier-list {
             list-style-type: decimal;
             padding-left: 20px;
@@ -60,6 +66,7 @@
             <button id="choice2"></button>
         </div>
         <button id="skip-button">Skip & Reshuffle</button>
+        <p id="progress-counter"></p>
         <p>Updated May 2025</p>
     </div>
 
@@ -77,7 +84,7 @@
             const resultsArea = document.getElementById('results-area');
             const tierList = document.getElementById('tier-list');
             const restartButton = document.getElementById('restart-button');
-            const roundCounter = document.getElementById('round-counter'); // We still select it, but won't update its text
+            const progressCounter = document.getElementById('progress-counter');
             const gameArea = document.getElementById('game-area');
 
             const initialNames = [
@@ -201,20 +208,49 @@
             let roundNum = 0;
             const maxRoundsMultiplier = 5;
 
-            if (names.length < 2) {
-                alert('Please provide at least two names in the initial list.');
-            } else {
-                names.forEach(name => preferences[name] = 0);
-                startGame();
+            // --- Local Storage Keys ---
+            const PREFERENCES_KEY = 'tierListPreferences';
+            const COMPARISONS_KEY = 'tierListComparisons';
+
+            // --- Load Saved Progress ---
+            function loadProgress() {
+                const savedPreferences = localStorage.getItem(PREFERENCES_KEY);
+                const savedComparisons = localStorage.getItem(COMPARISONS_KEY);
+
+                if (savedPreferences && savedComparisons) {
+                    preferences = JSON.parse(savedPreferences);
+                    comparisons = new Set(JSON.parse(savedComparisons));
+                    if (Object.keys(preferences).length > 0) {
+                        document.getElementById('game-area').style.display = 'block';
+                        updateProgress(); // Initial progress update
+                        choosePair(); // Resume the game
+                    } else {
+                        startGame();
+                    }
+                } else {
+                    startGame();
+                }
+            }
+
+            // --- Save Progress ---
+            function saveProgress() {
+                localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+                localStorage.setItem(COMPARISONS_KEY, JSON.stringify(Array.from(comparisons)));
+                updateProgress(); // Update progress on save
             }
 
             function startGame() {
+                names.forEach(name => preferences[name] = 0);
                 document.getElementById('game-area').style.display = 'block';
+                updateProgress(); // Initial progress update
                 choosePair();
             }
 
             function choosePair() {
-                if (comparisons.size >= (names.length * (names.length - 1) / 2) * 3) {
+                const totalPossibleComparisons = (names.length * (names.length - 1)) / 2;
+                const maxComparisonsToShow = totalPossibleComparisons * 3; // Our previous estimate
+
+                if (comparisons.size >= maxComparisonsToShow) {
                     showResults();
                     return null;
                 }
@@ -239,8 +275,13 @@
                 currentPair = [name1, name2];
                 choice1Button.textContent = name1;
                 choice2Button.textContent = name2;
-                // We no longer update roundCounter.textContent
                 return currentPair;
+            }
+
+            function updateProgress() {
+                const totalPossibleComparisons = (names.length * (names.length - 1)) / 2;
+                const progressPercentage = Math.min(100, Math.round((comparisons.size / (totalPossibleComparisons * 1.5)) * 100)); // Adjusted for our increased comparisons
+                progressCounter.textContent = `Progress: ${comparisons.size} / ${Math.round(totalPossibleComparisons * 1.5)} (${progressPercentage}%)`;
             }
 
             function getRandomSubset(array, size) {
@@ -252,6 +293,7 @@
                 if (currentPair.length === 2) {
                     preferences[currentPair[0]]++;
                     comparisons.add(currentPair[0] + '-' + currentPair[1]);
+                    saveProgress();
                     choosePair();
                 }
             });
@@ -260,6 +302,7 @@
                 if (currentPair.length === 2) {
                     preferences[currentPair[1]]++;
                     comparisons.add(currentPair[0] + '-' + currentPair[1]);
+                    saveProgress();
                     choosePair();
                 }
             });
@@ -267,6 +310,7 @@
             skipButton.addEventListener('click', () => {
                 if (currentPair.length === 2) {
                     choosePair();
+                    saveProgress();
                 }
             });
 
@@ -280,6 +324,8 @@
                     listItem.textContent = `${index + 1}. ${name} (Wins: ${score})`;
                     tierList.appendChild(listItem);
                 });
+                localStorage.removeItem(PREFERENCES_KEY); // Clear progress on completion
+                localStorage.removeItem(COMPARISONS_KEY);
             }
 
             restartButton.addEventListener('click', () => {
@@ -287,9 +333,13 @@
                 names = [...initialNames];
                 preferences = {};
                 comparisons.clear();
-                roundNum = 0;
+                localStorage.removeItem(PREFERENCES_KEY); // Clear progress on restart
+                localStorage.removeItem(COMPARISONS_KEY);
                 startGame();
             });
+
+            // --- Initialize: Load progress or start new game ---
+            loadProgress();
         });
     </script>
 </body>
