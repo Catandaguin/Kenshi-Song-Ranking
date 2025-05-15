@@ -38,10 +38,11 @@
             font-size: 1.2em;
         }
 
-        #game-area #skip-button {
-            padding: 8px 15px; /* Smaller skip button */
+        #game-area #skip-button, #start-over-button {
+            padding: 8px 15px; /* Smaller buttons */
             font-size: 0.9em;
-            margin-top: 10px; /* Add a little space above the skip button */
+            margin-top: 10px; /* Add space above them */
+            cursor: pointer;
         }
 
         #progress-counter {
@@ -66,6 +67,7 @@
             <button id="choice2"></button>
         </div>
         <button id="skip-button">Skip & Reshuffle</button>
+        <button id="start-over-button">Start From Beginning</button>
         <p id="progress-counter"></p>
         <p>Updated May 2025</p>
     </div>
@@ -81,6 +83,7 @@
             const choice1Button = document.getElementById('choice1');
             const choice2Button = document.getElementById('choice2');
             const skipButton = document.getElementById('skip-button');
+            const startOverButton = document.getElementById('start-over-button'); // Get the new button
             const resultsArea = document.getElementById('results-area');
             const tierList = document.getElementById('tier-list');
             const restartButton = document.getElementById('restart-button');
@@ -312,6 +315,15 @@
                     choosePair();
                     saveProgress();
                 }
+            });
+
+            startOverButton.addEventListener('click', () => {
+                names = [...initialNames];
+                preferences = {};
+                comparisons.clear();
+                localStorage.removeItem(PREFERENCES_KEY); // Clear progress
+                localStorage.removeItem(COMPARISONS_KEY);
+                startGame();
             });
 
             function showResults() {
