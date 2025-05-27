@@ -146,8 +146,6 @@
                 "Machigai Sagashi/Spot the Difference",
                 "fogbound",
                 "Hikarabita Basu Hitotsu/One Stale Bus",
-                "Poppin' Apathy",
-                "Horafuki Nekoyarou/Braggart Alleycats",
                 "Tori ni demo Naritai/Wanna Be A Bird At Least",
                 "Shouhon/Excerpt",
                 "Atashi wa Yuurei/I'm A Ghost",
@@ -206,26 +204,26 @@
             ];
 
             let names = [...initialNames];
-            let eloScores = {}; // Renamed from 'preferences' to 'eloScores'
+            let eloScores = {};
             let comparisons = new Set();
-            let currentPair = [];
-            let currentMatchCount = 0; // To track total matches played for termination
+            let currentMatchCount = 0;
+            let itemMatchCounts = {}; // NEW: To track how many matches each item has been in
             const INITIAL_ELO = 1000;
-            const K_FACTOR = 32; // Standard K-factor, determines max score change
-            const MAX_MATCHES_PER_ITEM = 5; // Aim for X comparisons per item on average
+            const K_FACTOR = 32;
+            const MAX_MATCHES_PER_ITEM = 5; // We'll aim for this many comparisons per item
             let totalMatchesTarget = names.length * MAX_MATCHES_PER_ITEM;
 
             // --- Local Storage Keys ---
-            const ELO_SCORES_KEY = 'tierListEloScores'; // Updated key
+            const ELO_SCORES_KEY = 'tierListEloScores';
             const COMPARISONS_KEY = 'tierListComparisons';
-            const MATCH_COUNT_KEY = 'tierListMatchCount'; // New key for match count
+            const MATCH_COUNT_KEY = 'tierListMatchCount';
+            const ITEM_MATCH_COUNTS_KEY = 'tierListItemMatchCounts'; // NEW: Key for item match counts
 
             // --- Elo Calculation Function ---
             function calculateEloChange(eloA, eloB, outcome) {
-                // outcome: 1 for A wins, 0 for A loses, 0.5 for draw (skip)
                 const expectedScoreA = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
                 const changeA = K_FACTOR * (outcome - expectedScoreA);
-                const changeB = -changeA; // B loses what A gains, or vice versa
+                const changeB = -changeA;
                 return { changeA, changeB };
             }
 
@@ -234,16 +232,21 @@
                 const savedEloScores = localStorage.getItem(ELO_SCORES_KEY);
                 const savedComparisons = localStorage.getItem(COMPARISONS_KEY);
                 const savedMatchCount = localStorage.getItem(MATCH_COUNT_KEY);
+                const savedItemMatchCounts = localStorage.getItem(ITEM_MATCH_COUNTS_KEY); // NEW
 
-                if (savedEloScores && savedComparisons && savedMatchCount) {
+                if (savedEloScores && savedComparisons && savedMatchCount && savedItemMatchCounts) {
                     eloScores = JSON.parse(savedEloScores);
                     comparisons = new Set(JSON.parse(savedComparisons));
                     currentMatchCount = parseInt(savedMatchCount, 10);
+                    itemMatchCounts = JSON.parse(savedItemMatchCounts); // NEW
 
-                    // Ensure all initialNames are in eloScores, even if newly added or progress was older
+                    // Ensure all initialNames are in eloScores and itemMatchCounts
                     initialNames.forEach(name => {
                         if (!eloScores[name]) {
                             eloScores[name] = INITIAL_ELO;
+                        }
+                        if (!itemMatchCounts[name]) { // NEW: Initialize new items to 0 matches
+                            itemMatchCounts[name] = 0;
                         }
                     });
 
@@ -260,11 +263,15 @@
                 localStorage.setItem(ELO_SCORES_KEY, JSON.stringify(eloScores));
                 localStorage.setItem(COMPARISONS_KEY, JSON.stringify(Array.from(comparisons)));
                 localStorage.setItem(MATCH_COUNT_KEY, currentMatchCount.toString());
+                localStorage.setItem(ITEM_MATCH_COUNTS_KEY, JSON.stringify(itemMatchCounts)); // NEW
                 updateProgress();
             }
 
             function startGame() {
-                initialNames.forEach(name => eloScores[name] = INITIAL_ELO); // Initialize all to 1000 Elo
+                initialNames.forEach(name => {
+                    eloScores[name] = INITIAL_ELO;
+                    itemMatchCounts[name] = 0; // NEW: Initialize item match counts
+                });
                 comparisons.clear();
                 currentMatchCount = 0;
                 document.getElementById('game-area').style.display = 'block';
@@ -272,25 +279,51 @@
                 choosePair();
             }
 
+            // --- NEW: Function to find the least compared item ---
+            function getLeastComparedItem(availableItems) {
+                if (availableItems.length === 0) return null;
+
+                let minCount = Infinity;
+                let leastComparedItems = [];
+
+                availableItems.forEach(item => {
+                    const count = itemMatchCounts[item] || 0; // Use 0 if not yet recorded
+                    if (count < minCount) {
+                        minCount = count;
+                        leastComparedItems = [item];
+                    } else if (count === minCount) {
+                        leastComparedItems.push(item);
+                    }
+                });
+                // Return a random item from those with the minimum comparison count
+                return leastComparedItems[Math.floor(Math.random() * leastComparedItems.length)];
+            }
+
+
             function choosePair() {
-                // Game completion check based on total matches played
                 if (currentMatchCount >= totalMatchesTarget) {
                     showResults();
                     return null;
                 }
 
-                // Filter out items that might have somehow lost their score or aren't in initialNames
                 const playableNames = names.filter(name => typeof eloScores[name] === 'number');
 
                 if (playableNames.length < 2) {
-                    showResults(); // Not enough valid items to compare
+                    showResults();
                     return null;
                 }
 
                 let name1, name2;
                 let foundPair = false;
                 let attempts = 0;
-                const maxAttempts = 100; // Prevent infinite loops if all pairs are exhausted/filtered
+                const maxAttempts = 200; // Increased attempts to find a valid pair
+
+                // Strategy: Prioritize least compared item as name1
+                name1 = getLeastComparedItem(playableNames);
+                if (!name1) { // Should not happen if playableNames.length >= 2
+                    showResults();
+                    return null;
+                }
 
                 do {
                     if (attempts >= maxAttempts) {
@@ -298,12 +331,36 @@
                         showResults();
                         return null;
                     }
-                    const sample = getRandomSubset(playableNames, 2);
-                    name1 = sample[0];
-                    name2 = sample[1];
-                    // Ensure the chosen pair hasn't been compared yet
+
+                    // Try to find an opponent for name1
+                    const potentialOpponents = playableNames.filter(item => item !== name1);
+                    if (potentialOpponents.length === 0) { // No other items to compare against
+                        showResults();
+                        return null;
+                    }
+
+                    // For name2, prioritize least compared among potential opponents
+                    name2 = getLeastComparedItem(potentialOpponents);
+
+                    // Check if this pair (name1-name2) has been compared before
                     if (!comparisons.has(name1 + '-' + name2) && !comparisons.has(name2 + '-' + name1)) {
                         foundPair = true;
+                    } else {
+                        // If the chosen name2 has already been compared, try a random opponent
+                        // This fallback is crucial to avoid getting stuck if the "least compared" is already exhausted
+                        const randomOpponent = potentialOpponents[Math.floor(Math.random() * potentialOpponents.length)];
+                        if (!comparisons.has(name1 + '-' + randomOpponent) && !comparisons.has(randomOpponent + '-' + name1)) {
+                            name2 = randomOpponent;
+                            foundPair = true;
+                        } else {
+                            // If random also fails, try another name1 in the next loop iteration (do-while)
+                            // Re-select name1 if current combination is exhausted
+                            name1 = getLeastComparedItem(playableNames.filter(item => item !== name1));
+                            if (!name1) { // If we've exhausted all possible name1s
+                                showResults();
+                                return null;
+                            }
+                        }
                     }
                     attempts++;
                 } while (!foundPair);
@@ -324,6 +381,7 @@
                 return shuffled.slice(0, size);
             }
 
+            // --- Event Listeners: Update Elo Scores and Item Match Counts ---
             choice1Button.addEventListener('click', () => {
                 if (currentPair.length === 2) {
                     const [itemA, itemB] = currentPair;
@@ -331,8 +389,10 @@
                     eloScores[itemA] = Math.round(eloScores[itemA] + changeA);
                     eloScores[itemB] = Math.round(eloScores[itemB] + changeB);
 
-                    comparisons.add(itemA + '-' + itemB); // Mark pair as compared
+                    comparisons.add(itemA + '-' + itemB);
                     currentMatchCount++;
+                    itemMatchCounts[itemA]++; // NEW: Increment match count for item A
+                    itemMatchCounts[itemB]++; // NEW: Increment match count for item B
                     saveProgress();
                     choosePair();
                 }
@@ -345,8 +405,10 @@
                     eloScores[itemA] = Math.round(eloScores[itemA] + changeA);
                     eloScores[itemB] = Math.round(eloScores[itemB] + changeB);
 
-                    comparisons.add(itemA + '-' + itemB); // Mark pair as compared
+                    comparisons.add(itemA + '-' + itemB);
                     currentMatchCount++;
+                    itemMatchCounts[itemA]++; // NEW
+                    itemMatchCounts[itemB]++; // NEW
                     saveProgress();
                     choosePair();
                 }
@@ -359,8 +421,10 @@
                     eloScores[itemA] = Math.round(eloScores[itemA] + changeA);
                     eloScores[itemB] = Math.round(eloScores[itemB] + changeB);
 
-                    comparisons.add(itemA + '-' + itemB); // Mark pair as compared
+                    comparisons.add(itemA + '-' + itemB);
                     currentMatchCount++;
+                    itemMatchCounts[itemA]++; // NEW
+                    itemMatchCounts[itemB]++; // NEW
                     saveProgress();
                     choosePair();
                 }
@@ -368,14 +432,16 @@
 
             startOverButton.addEventListener('click', () => {
                 if (confirm("Are you sure you want to start over? All current progress will be lost.")) {
-                    names = [...initialNames]; // Reset names array (if it were ever modified)
-                    eloScores = {}; // Clear all Elo scores
-                    comparisons.clear(); // Clear all comparison history
-                    currentMatchCount = 0; // Reset match count
-                    localStorage.removeItem(ELO_SCORES_KEY); // Clear saved Elo scores
-                    localStorage.removeItem(COMPARISONS_KEY); // Clear saved comparisons
-                    localStorage.removeItem(MATCH_COUNT_KEY); // Clear saved match count
-                    startGame(); // Begin a brand new game
+                    names = [...initialNames];
+                    eloScores = {};
+                    comparisons.clear();
+                    currentMatchCount = 0;
+                    itemMatchCounts = {}; // NEW: Clear item match counts
+                    localStorage.removeItem(ELO_SCORES_KEY);
+                    localStorage.removeItem(COMPARISONS_KEY);
+                    localStorage.removeItem(MATCH_COUNT_KEY);
+                    localStorage.removeItem(ITEM_MATCH_COUNTS_KEY); // NEW
+                    startGame();
                 }
             });
 
@@ -383,34 +449,34 @@
             function showResults() {
                 gameArea.style.display = 'none';
                 resultsArea.style.display = 'block';
-                // Sort by Elo score, highest first
                 const sortedNames = Object.entries(eloScores).sort(([, a], [, b]) => b - a);
                 tierList.innerHTML = '';
                 sortedNames.forEach(([name, score], index) => {
                     const listItem = document.createElement('li');
-                    // Display Elo score (no decimals needed for rounded scores)
                     listItem.textContent = `${index + 1}. ${name} (Elo: ${score})`;
                     tierList.appendChild(listItem);
                 });
-                // Clear progress from local storage when the game is completed
                 localStorage.removeItem(ELO_SCORES_KEY);
                 localStorage.removeItem(COMPARISONS_KEY);
                 localStorage.removeItem(MATCH_COUNT_KEY);
+                localStorage.removeItem(ITEM_MATCH_COUNTS_KEY); // NEW
             }
 
             restartButton.addEventListener('click', () => {
                 resultsArea.style.display = 'none';
-                names = [...initialNames]; // Reset names array
-                eloScores = {}; // Clear Elo scores
-                comparisons.clear(); // Clear comparison history
-                currentMatchCount = 0; // Reset match count
-                localStorage.removeItem(ELO_SCORES_KEY); // Clear saved Elo scores
-                localStorage.removeItem(COMPARISONS_KEY); // Clear saved comparisons
-                localStorage.removeItem(MATCH_COUNT_KEY); // Clear saved match count
-                startGame(); // Start a new game
+                names = [...initialNames];
+                eloScores = {};
+                comparisons.clear();
+                currentMatchCount = 0;
+                itemMatchCounts = {}; // NEW
+                localStorage.removeItem(ELO_SCORES_KEY);
+                localStorage.removeItem(COMPARISONS_KEY);
+                localStorage.removeItem(MATCH_COUNT_KEY);
+                localStorage.removeItem(ITEM_MATCH_COUNTS_KEY); // NEW
+                startGame();
             });
 
-            // --- Initialize the game: Load progress or start new game ---
+            // --- Initialize the game ---
             loadProgress();
         });
     </script>
